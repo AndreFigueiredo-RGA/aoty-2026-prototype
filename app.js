@@ -65,7 +65,7 @@
 
   function loginHTML(r) {
     return `<main class="login">
-      <section class="login-art"><img src="assets/login-art.png" alt=""><span class="brandline">R/GA • CAMPAIGN UK</span><h2>Agency of the Year 2026</h2></section>
+      <section class="login-art"><div class="cube-scene" id="cubeScene" aria-label="Interactive 3D cube. Drag to rotate."><div class="cube"><i class="cf f-front"></i><i class="cf f-back"></i><i class="cf f-right"></i><i class="cf f-left"></i><i class="cf f-top"></i><i class="cf f-bottom"></i></div></div><span class="brandline">R/GA • CAMPAIGN UK</span><h2>Agency of the Year 2026</h2></section>
       <form class="login-form" id="loginForm" autocomplete="off">
         <h1>Hello ${esc(session.name)}</h1><p>Enter the details from your invitation.</p>
         <label class="field">Email<input type="email" placeholder="name@organisation.com" aria-label="Email"></label>
@@ -602,10 +602,53 @@
     });
   }
 
+  /* ---------- Login cube: drag to rotate, gentle spin when idle ---------- */
+  function mountCube() {
+    const scene = $('#cubeScene'); if (!scene) return;
+    const cube = scene.querySelector('.cube');
+    let rx = -24, ry = 32, vx = 0, vy = 0.25, down = false, lx = 0, ly = 0, raf = 0;
+    const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // One fixed light (upper left, towards the viewer). Each face is shaded by the angle between its
+    // rotated normal and that light, so the shading changes naturally as the cube turns.
+    const L = (() => { const v = [-0.5, -0.75, 0.55], m = Math.hypot(...v); return v.map((n) => n / m); })();
+    const faces = [['.f-front', [0, 0, 1]], ['.f-back', [0, 0, -1]], ['.f-right', [1, 0, 0]], ['.f-left', [-1, 0, 0]], ['.f-top', [0, -1, 0]], ['.f-bottom', [0, 1, 0]]]
+      .map(([sel, n]) => ({ el: cube.querySelector(sel), n }));
+    const DARK = [138, 0, 0], LIGHT = [255, 72, 72];
+    const shade = () => {
+      const a = rx * Math.PI / 180, b = ry * Math.PI / 180;
+      const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+      faces.forEach(({ el, n }) => {
+        const x1 = n[0] * cb + n[2] * sb, y1 = n[1], z1 = -n[0] * sb + n[2] * cb;   // rotateY
+        const y2 = y1 * ca - z1 * sa, z2 = y1 * sa + z1 * ca, x2 = x1;              // then rotateX
+        const t = Math.min(1, Math.max(0, 0.2 + 0.9 * Math.max(0, x2 * L[0] + y2 * L[1] + z2 * L[2])));
+        el.style.background = `rgb(${DARK.map((d, i) => Math.round(d + (LIGHT[i] - d) * t)).join(',')})`;
+      });
+    };
+    const paint = () => { cube.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`; shade(); };
+    const tick = () => {
+      if (!scene.isConnected) return;
+      if (!down) {
+        ry += vy; rx += vx;
+        vx *= 0.95; vy += ((reduce ? 0 : 0.25) - vy) * 0.02;
+      }
+      paint(); raf = requestAnimationFrame(tick);
+    };
+    scene.addEventListener('pointerdown', (e) => { down = true; lx = e.clientX; ly = e.clientY; scene.classList.add('drag'); scene.setPointerCapture(e.pointerId); });
+    scene.addEventListener('pointermove', (e) => {
+      if (!down) return;
+      const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
+      ry += dx * 0.5; rx -= dy * 0.5; vy = dx * 0.5; vx = -dy * 0.5;
+    });
+    const up = () => { down = false; scene.classList.remove('drag'); };
+    scene.addEventListener('pointerup', up); scene.addEventListener('pointercancel', up);
+    paint(); raf = requestAnimationFrame(tick);
+  }
+
   /* ---------- Wiring ---------- */
   function wire(r) {
     if (r.p === 'login') {
       $('#loginForm').addEventListener('submit', (e) => { e.preventDefault(); session.signedIn = true; sessionStorage.setItem('aoty-in', '1'); go(r.v, 'welcome'); });
+      mountCube();
       return;
     }
     app.addEventListener('click', onClick);

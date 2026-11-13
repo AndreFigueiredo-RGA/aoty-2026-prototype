@@ -502,3 +502,19 @@ body.on-work #app .gfab{opacity:0;pointer-events:none}
 .wk-col p{flex:none}
 .grail a,.gen-back{text-decoration:none}
 .gen.take .gfab{pointer-events:none;cursor:default}
+
+/* Login: rotatable 3D cube on #FF0000, lit from one fixed point (shading set in JS) */
+.login-art{background:#FF0000}
+.login-art::after{display:none}
+.cube-scene{--s:min(34vmin,260px);position:absolute;inset:0;display:grid;place-items:center;perspective:1100px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;z-index:0}
+.cube-scene.drag{cursor:grabbing}
+.cube-scene::before{content:"";position:absolute;left:calc(50% - var(--s)*.35);top:calc(50% + var(--s)*.78);width:calc(var(--s)*1.5);height:calc(var(--s)*.34);border-radius:50%;background:radial-gradient(closest-side,rgba(110,0,0,.55),rgba(110,0,0,.22) 60%,rgba(110,0,0,0));filter:blur(6px);pointer-events:none}
+.cube{position:relative;width:var(--s);height:var(--s);transform-style:preserve-3d;will-change:transform}
+.cf{position:absolute;inset:0;backface-visibility:hidden;background:#FF0000}
+.f-front{transform:translateZ(calc(var(--s)/2))}
+.f-back{transform:rotateY(180deg) translateZ(calc(var(--s)/2))}
+.f-right{transform:rotateY(90deg) translateZ(calc(var(--s)/2))}
+.f-left{transform:rotateY(-90deg) translateZ(calc(var(--s)/2))}
+.f-top{transform:rotateX(90deg) translateZ(calc(var(--s)/2))}
+.f-bottom{transform:rotateX(-90deg) translateZ(calc(var(--s)/2))}
+.login-art .brandline,.login-art h2{pointer-events:none}
