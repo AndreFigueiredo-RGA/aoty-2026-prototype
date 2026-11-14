@@ -14,15 +14,27 @@
 
   /* ---------- Routing: #/<variant>/<page>[/<id>] ---------- */
   function route() {
-    const [, v, p, id] = location.hash.split('/');
-    return { v: VARIANTS.includes(v) ? v : 'bronze', p: p || (session.signedIn ? 'welcome' : 'login'), id };
+    const [path, qs = ''] = location.hash.split('?');
+    const [, v, p, id] = path.split('/'); const q = new URLSearchParams(qs);
+    return { v: VARIANTS.includes(v) ? v : 'bronze', p: p || (session.signedIn ? 'welcome' : 'login'), id, ai: q.get('ai'), q: q.get('q'), s: q.get('s') };
+  }
+  // Every state is a URL: the assistant (?ai=take|page&q=...) and the landing stage (?s=work) are history entries,
+  // so the browser's back button, and every in-page "back" (close, Esc), step through them with history.back().
+  function hashWith(ch) {
+    const [path, qs = ''] = location.hash.split('?'); const q = new URLSearchParams(qs);
+    Object.entries(ch).forEach(([k, v]) => (v == null ? q.delete(k) : q.set(k, v)));
+    const s = q.toString(); return path + (s ? '?' + s : '');
   }
   function go(v, p, id) { location.hash = `/${v}/${p}${id ? '/' + id : ''}`; }
 
   function render() {
+    const r = route();
+    const key = `${r.v}/${r.p}/${r.id || ''}`;
+    // Same page, only a state changed (assistant open/closed, stage): update the state, don't rebuild the page.
+    if (r.v === 'gold' && render.key === key && window.__gen) { window.__gen.sync(r.ai, r.q); if (window.__deck) window.__deck.sync(r.s); return; }
+    render.key = key;
     cleanup.forEach((f) => f()); cleanup = [];
     document.body.classList.remove('on-work');
-    const r = route();
     if (!session.signedIn && r.p !== 'login') { go(r.v, 'login'); return; }
     document.body.dataset.variant = r.v;
     document.body.classList.toggle('has-bar', r.v === 'silver' && r.p !== 'login');
@@ -32,6 +44,7 @@
     else if (r.p === 'case') app.innerHTML = caseHTML(r);
     else app.innerHTML = welcomeHTML(r);
     app.classList.remove('page-in'); void app.offsetWidth; app.classList.add('page-in');
+    { const n = $('.site-nav'); document.documentElement.style.setProperty('--navh', (n ? n.offsetHeight : 0) + 'px'); }
     wire(r);
     initMotion();
     // First arrival at the prototype this session: introduce the three options.
@@ -58,7 +71,7 @@
     tints: [[392, 299, 96, 254], [862, 299, 239, 121]],
     labels: [{ x: 86, y: 149, a: 'BRANDS', b: 'Intelligent by design' }, { x: 892, y: 110, a: 'STORIES', b: 'Personalised at scale' }, { x: 422, y: 584, a: 'EXPERIENCES', b: 'Adaptive by nature' }]
   };
-  const nav = (r) => `<nav class="site-nav"><a class="logo" href="#/${r.v}/welcome" aria-label="R/GA home"><img src="assets/rga-logo.svg" alt="R/GA" height="18"></a>
+  const nav = (r) => `<nav class="site-nav"><a class="logo" href="#/${r.v}/welcome${r.v === 'gold' && r.p !== 'welcome' ? '?s=work' : ''}" aria-label="R/GA home"><img src="assets/rga-logo.svg" alt="R/GA" height="18"></a>
     <div class="nav-r"><span>Agency of the Year 2026</span><button data-act="logout">Log out</button></div></nav>`;
   const SIGNATURE = '<img class="signature" src="assets/rga-signature.png" alt="R/GA 1977–TMRW. We design intelligent brand systems that help businesses get ahead." width="1360" height="341">';
   const footer = () => `<footer class="foot rv">${SIGNATURE}</footer>`;
@@ -76,7 +89,8 @@
   }
 
   function welcomeHTML(r) {
-    const gold = r.v === 'gold';
+    if (r.v === 'gold') return goldWelcomeHTML(r);
+    const gold = false;
     const cards = D.cases.map((c, i) => `<button class="card rv ${c.ready ? '' : 'pending'}" style="--d:${0.15 + i * 0.09}s" data-case="${c.id}">
       <div class="thumb">Case image</div><small>${c.n}</small><b>${esc(c.name)}</b><span>${esc(c.line)}</span></button>`).join('');
     const pct = (v, t) => `${(v / t) * 100}%`;
@@ -95,7 +109,7 @@
         <section class="stg stg-rects" data-stg="rects" aria-label="Brands, stories, experiences">
           <div class="mgraph" id="graph"><svg class="mg-svg" viewBox="0 0 ${G.W} ${G.H}" aria-hidden="true"></svg>${tints}${handles}${labels}</div>
         </section>
-        ${gold ? workStageHTML() : `<section class="stg stg-video" data-stg="video" aria-label="The work">
+        ${`<section class="stg stg-video" data-stg="video" aria-label="The work">
           <div class="work-head"><h2 data-split>The work</h2><p class="work-note rv">*All client results and data is\nconfidential and for judges eyes only.</p></div>
           ${reelHTML(r.v)}
         </section>
@@ -109,35 +123,85 @@
       </div>
       <ol class="dots" aria-label="Sections">${(gold ? ['Welcome', 'Brands, stories, experiences', 'The work', 'Close'] : ['Welcome', 'Brands, stories, experiences', 'The work', 'Case studies', 'Close']).map((n, i) => `<li><button data-stage="${i}" aria-label="${n}"></button></li>`).join('')}</ol>
     </div>
-    ${r.v === 'silver' ? silverBarHTML(true) : ''}${gold ? GFAB : ''}`;
+    ${r.v === 'silver' ? silverBarHTML(true) : ''}`;
   }
 
-  /* ---------- Gold: the work as five case columns, and the case page with the assistant rail ---------- */
-  const GFAB = '<button class="gfab" data-gen-open aria-label="Open the assistant">✦</button>';
-  function workStageHTML() {
-    const order = ['nike-acg', 'g42', 'fox-1', 'google-health', 'moncler'];
-    const cols = order.map((id, i) => {
-      const c = D.cases.find((x) => x.id === id);
-      return `<button class="wk-col rv" style="--d:${0.25 + i * 0.08}s" data-case="${c.id}"><b>${esc(c.name.replace(' (tbc)', ''))}</b>
-        <p>${esc(c.ready ? c.challenge : 'Case material is still in production.')}</p><i></i></button>`;
+  /* ---------- Gold (Figma "Gold" 2124:3065): welcome, then a grid of the work. Assistant entry sits in the page ---------- */
+  // The same icon + copy, in the same place (48px under the nav, aligned with the logo), on every page and state.
+  const AID = '<span class="sp">✦</span><b>An entry that adapts to you.</b><small>I can help you deep dive or see the work in another way. Just say the word.</small>';
+  // Tiles play their video on roll-over (muted). Only Nike ACG and G42 open a case study.
+  const TILES = [
+    { id: 'ceo', img: 'ceo.png', label: 'A message from R/GA' },
+    { id: 'fox-1', img: 'fox-1.png', video: true, label: 'FOX ONE' },
+    { id: 'g42', img: 'g42.png', video: true, link: 'case', label: 'G42' },
+    { id: 'nike-acg', img: 'nike-acg.png', video: true, link: 'case', label: 'Nike ACG' },
+    { blank: true },
+    { id: 'moncler', img: 'moncler.png', video: true, label: 'Moncler' },
+    { id: 'google-health', img: 'google-health.png', video: true, label: 'Google Health' },
+    { id: 'ibs', text: 'We design intelligent brand systems to help business get ahead.', chip: 'what does that mean?', label: 'Intelligent brand systems' }
+  ];
+  function goldWelcomeHTML(r) {
+    const tiles = TILES.map((t, i) => {
+      const d = `style="--d:${0.1 + i * 0.07}s"`;
+      if (t.blank) return `<div class="tile tile-blue rv" ${d} aria-hidden="true"></div>`;
+      const media = t.img ? `<img src="assets/tiles/${t.img}" alt="">${t.video ? `<video class="tv" muted loop playsinline preload="none" aria-hidden="true"></video>` : ''}` : `<p>${esc(t.text)}</p>`;
+      const inner = `${media}${t.chip ? `<span class="tchip">${esc(t.chip)}</span>` : ''}`;
+      const vs = t.video ? ` data-vsrc="assets/video/${t.id}.mp4"` : '';
+      return t.link === 'case'
+        ? `<button class="tile rv link" ${d} data-case="${t.id}"${vs} aria-label="${esc(t.label)}">${inner}</button>`
+        : `<div class="tile rv ${t.img ? '' : 'tile-red'}" ${d}${vs} role="img" aria-label="${esc(t.label)}">${inner}</div>`;
     }).join('');
-    return `<section class="stg stg-work" data-stg="work" aria-label="The work">
-      <div class="work-head"><h2 data-split>The work</h2><p class="work-note rv">*All client results and data is\nconfidential and for judges eyes only.</p></div>
-      <button class="wk-ask rv" style="--d:.15s" data-gen-open><span class="sp">✦</span><b>See the work your way.</b><em>I can help you deep dive or see the work in another way, just ask me.</em></button>
-      <div class="wk-cols">${cols}</div></section>`;
+    return `${nav(r)}
+    <div class="deck" id="deck">
+      <div class="deck-view" id="deckView">
+        <section class="stg stg-welcome stg-gwelcome" data-stg="welcome" aria-label="Welcome">
+          <div class="gw-who rv">WELCOME ${esc(session.name.toUpperCase())}</div>
+          <div class="gw-copy rv" style="--d:.15s"><p>We’re glad you’re here. Explore the work in whatever order feels right.</p><p>If you’d like company, the assistant is close by.</p></div>
+        </section>
+        <section class="stg stg-work" data-stg="work" aria-label="The work">
+          <button class="gw-ask aid rv" data-gen-open>${AID}</button>
+          <div class="tg">${tiles}</div>
+        </section>
+      </div>
+      <ol class="dots" aria-label="Sections">${['Welcome', 'The work'].map((n, i) => `<li><button data-stage="${i}" aria-label="${n}"></button></li>`).join('')}</ol>
+    </div>`;
   }
+  function mountTiles() {
+    $$('.tile[data-vsrc]').forEach((t) => {
+      const v = $('video', t); if (!v) return;
+      t.addEventListener('mouseenter', () => {
+        if (!v.getAttribute('src')) { v.src = t.dataset.vsrc; v.load(); }
+        const p = v.play(); if (p && p.then) p.then(() => t.classList.add('vplay')).catch(() => {});
+      });
+      t.addEventListener('mouseleave', () => { v.pause(); t.classList.remove('vplay'); try { v.currentTime = 0; } catch (e) { /* not loaded yet */ } });
+    });
+  }
+
+  // Suggested questions in the case-page rail. Each is anchored to the component it relates to and appears as you scroll to it.
+  const CASE_CHIPS = {
+    'nike-acg': [{ q: 'How does the Wild Score work?', at: 'a-solution' }, { q: 'Did it get people outside?', at: 'a-v6' }, { q: 'How did you reach 1.3M visitors?', at: 'a-results' }],
+    g42: [{ q: 'What’s generated live vs pre-written?', at: 'a-solution' }, { q: 'What happens when the AI gets it wrong?', at: 'a-v5' }, { q: 'What’s changed for G42 since launch?', at: 'a-results' }]
+  };
+  const railHTML = (chips) => `<aside class="grail"><button class="grail-ask aid" data-gen-open>${AID}</button>
+    <div class="grail-chips">${chips.map((c) => `<button class="gchip" data-chip-gen="${esc(c.q)}" data-at="${c.at}">${esc(c.q)}</button>`).join('')}</div></aside>`;
+  function mountRailChips() {
+    const chips = $$('.gchip[data-at]'); if (!chips.length) return;
+    const upd = () => chips.forEach((c) => { const el = document.getElementById(c.dataset.at); c.classList.toggle('on', !el || el.getBoundingClientRect().top < window.innerHeight * 0.72); });
+    window.addEventListener('scroll', upd, { passive: true }); window.addEventListener('resize', upd); upd();
+    cleanup.push(() => { window.removeEventListener('scroll', upd); window.removeEventListener('resize', upd); });
+  }
+
   function goldCaseHTML(r) {
     const c = D.cases.find((x) => x.id === r.id) || D.cases[3];
-    const body = c.ready ? `
-      <section class="g-row rv"><h3>The Challenge</h3><p>${esc(c.challenge)}</p></section>
-      <div class="g-ph"></div><div class="g-ph"></div><div class="g-ph"></div>
-      <section class="g-row rv"><h3>The Solution</h3><div>${c.solution.map((p) => `<p>${esc(p)}</p>`).join('')}</div></section>
-      <div class="g-ph"></div><div class="g-ph"></div><div class="g-ph"></div>
-      <section class="g-row rv"><h3>The Results</h3><p>${esc(c.results)}</p></section>`
-      : `<section class="g-row rv"><h3>In production</h3><p>Case material for ${esc(c.name)} is still in production. This page will follow the same Challenge, Solution, Results structure.</p></section><div class="g-ph"></div>`;
-    return `<div class="gcase"><aside class="grail"><div class="grail-top"><a class="grail-logo" href="#/gold/welcome" aria-label="R/GA home"><img src="assets/rga-logo.svg" alt="R/GA" height="18"></a><a class="grail-back" data-to-work href="#/gold/welcome">← The work</a></div>
-      <button class="grail-q" data-gen-open>How can I help you?</button></aside>
-      <main class="gmain"><section class="g-hero"><h1 data-split>${esc(c.name.replace(' (tbc)', '').toUpperCase())}</h1></section>${body}${footer()}</main></div>${GFAB}`;
+    const vid = (n) => `<div class="g-ph g-vid" id="a-v${n}"><span>[VIDEO ${n}]</span></div>`;
+    const body = `
+      <section class="g-row rv" id="a-challenge"><h3>The Challenge</h3><p>${esc(c.challenge)}</p></section>
+      ${vid(1)}${vid(2)}${vid(3)}
+      <section class="g-row rv" id="a-solution"><h3>The Solution</h3><div>${c.solution.map((p) => `<p>${esc(p)}</p>`).join('')}</div></section>
+      ${vid(4)}${vid(5)}${vid(6)}
+      <section class="g-row rv" id="a-results"><h3>The Results</h3><p>${esc(c.results)}</p></section>`;
+    return `${nav(r)}<div class="gcase">${railHTML(CASE_CHIPS[c.id] || [])}
+      <main class="gmain"><section class="g-hero"><h1 data-split>${esc(c.name.replace(' (tbc)', '').toUpperCase())}</h1></section>${body}${footer()}</main></div>`;
   }
 
   function caseHTML(r) {
@@ -221,14 +285,11 @@
   const KEYB = '<svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="1" width="28" height="18" rx="3"/><path d="M6 6h2M11 6h2M16 6h2M21 6h2M6 10h2M11 10h2M16 10h2M21 10h2M9 14h12" stroke-linecap="round"/></svg>';
   const A_PLAY = '<svg width="10" height="12" viewBox="0 0 10 12" fill="none" stroke="#000" stroke-width="1" aria-hidden="true"><path d="M1 1l8 5-8 5z"/></svg>';
   const A_PODCAST = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#000" stroke-width="1" aria-hidden="true"><circle cx="7" cy="6" r="1.6"/><path d="M3.6 9.4a4.8 4.8 0 1 1 6.8 0M5 8a2.8 2.8 0 1 1 4 0"/><path d="M7 8.5V12"/></svg>';
-  const GEN_CHIPS = ['Give me a showreel with all the work', 'Give me a 1min download of the case studies'];
-
   function genPageHTML() {
     const ph = (cls, i, txt, extra = '') => `<div class="gb gph ${cls}" style="--i:${i}" ${extra}>${txt}</div>`;
     return `
     <section class="gb g-cover" style="--i:0"><p class="g-kick">Brands that think.<br>Experiences that adapt.</p>
-      <h2>This year, we stopped building brand channels and started building brand systems that think.</h2>
-      <div class="g-acts"><button data-gen-act="Get as Video"><i>${A_PLAY}</i><span>Get as Video</span></button><button data-gen-act="Get as Podcast"><i>${A_PODCAST}</i><span>Get as Podcast</span></button></div></section>
+      <h2>This year, we stopped building brand channels and started building brand systems that think.</h2></section>
     <section class="gb g-lead" style="--i:1"><p>G42 challenged us to prove websites were dead. We agreed, and built what comes next. G42.ai is a generative interface where the brand itself is an intelligent agent. It turns PDFs, videos and press releases into living knowledge, then speaks from it, within guardrails, to people and to other AI agents. That’s an intelligent brand system.</p>
       <ul><li>/ Generative Interfaces</li><li>/ Future of Websites</li></ul></section>
     ${ph('g-hero', 2, '[VIDEO, hero, 10 sec loop, autoplay muted]<br>Quick cut between the two worlds: the G42.ai interface responding to a spoken query.')}
@@ -245,71 +306,161 @@
     <section class="gb g-two g-end" style="--i:8"><h3>Different briefs,<br>one thread</h3><p>Intelligence built into the system, stories shaped for each person, experiences that adapt to the moment. One makes the screen smarter. The other sends people beyond it.</p></section>`;
   }
 
+  const CLOSE_X = '<svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" aria-hidden="true"><path d="M2 2l30 30M32 2L2 32"/></svg>';
+  const THINK = ['Reading the work…', 'Finding what connects it…', 'Building your page…'];
+  const IDEAS = ['What is the common tread between all the projects?', 'Tell me more about Intelligent Brand Systems', 'What’s changed for G42 since launch?', 'What happens when the AI gets it wrong, and what guardrails exist?', 'Where did you fail this year, and what did you do about it?'];
+  // The generated article builds itself: every word is wrapped so the copy streams in, block by block.
+  function streamify(root) {
+    $$('.gb', root).forEach((b) => {
+      if (b.classList.contains('gph')) { const d = document.createElement('div'); while (b.firstChild) d.appendChild(b.firstChild); b.appendChild(d); }   // keep the words in one centred text block
+      if (b.classList.contains('gt')) { const d = document.createElement('span'); d.className = 'gtw'; while (b.firstChild) d.appendChild(b.firstChild); b.appendChild(d); }   // the grid cell is a flex box: one block child keeps the words flowing as text
+      let n = 0; const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT); const nodes = [];
+      while (w.nextNode()) nodes.push(w.currentNode);
+      nodes.forEach((tn) => {
+        if (!tn.textContent.trim()) return;
+        const frag = document.createDocumentFragment();
+        tn.textContent.split(/(\s+)/).forEach((part) => {
+          if (!part) return;
+          if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); return; }
+          const s = document.createElement('span'); s.className = 'w'; s.style.setProperty('--wd', (n++ * 0.03).toFixed(2) + 's'); s.textContent = part; frag.appendChild(s);
+        });
+        tn.replaceWith(frag);
+      });
+      // Until a block is generated, its text shows as skeleton lines that match its real line count.
+      $$('p,h2,h3,li,.gtw', b).concat(b.matches('p') && !b.classList.contains('gt') ? [b] : []).forEach((t) => t.classList.add('gsk'));
+    });
+  }
   function mountGen() {
     const el = document.createElement('div'); el.id = 'gen'; el.className = 'gen'; el.hidden = true;
     el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'R/GA assistant');
-    el.innerHTML = `<div class="gen-rail">
-        <button class="gen-back" data-gen-close>← Back</button>
-        <form class="gen-ask" data-form autocomplete="off">
-          <div class="gen-row"><div class="gen-field"><input data-q placeholder="See the work your way. Ask questions tell me to reframe it..." aria-label="Ask the assistant"></div>
-            <button type="button" class="gen-ic" data-mic aria-label="Speak your question">${MIC}</button><button type="button" class="gen-ic" data-kb aria-label="Type your question">${KEYB}</button></div>
-          <div class="gen-chips">${GEN_CHIPS.map((c) => `<button type="button" class="gen-chip" data-chip="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-        </form>
-        <p class="gen-q" data-qtext></p>
-        <button class="gfab" data-gen-toggle aria-label="Assistant">✦</button>
-      </div><main class="gen-main" data-main tabindex="-1"></main>`;
+    el.innerHTML = `<div class="gen-bg"></div>
+      <main class="gen-main" data-main tabindex="-1"></main>
+      <div class="gen-id aid"><button class="gen-star" data-gen-toggle aria-label="Ask something new">✦</button>
+        <div class="gen-intro"><b>An entry that adapts to you.</b><small>I can help you deep dive or see the work in another way. Just say the word.</small></div>
+        <p class="gen-q" data-qtext></p><p class="gen-reply">Here is a quick download. Let me know if you need more information.</p></div>
+      <button class="gen-x" data-gen-close aria-label="Close the assistant">${CLOSE_X}</button>
+      <form class="gen-ask" data-form autocomplete="off">
+        <div class="gen-row"><div class="gen-field empty" data-field><input data-q aria-label="Ask the assistant"><button type="button" class="gen-tick" data-tick tabindex="-1" aria-label="Use this suggestion"><span data-tickt></span></button></div>
+          <button type="button" class="gen-ic" data-mic aria-label="Speak your question">${MIC}</button><button type="button" class="gen-ic" data-kb aria-label="Type your question">${KEYB}</button></div>
+        <p class="gen-status" data-status aria-live="polite"></p>
+      </form>`;
     document.body.appendChild(el);
-    const input = $('[data-q]', el); const main = $('[data-main]', el); const qText = $('[data-qtext]', el);
-    const timers = [];
+    const input = $('[data-q]', el); const main = $('[data-main]', el); const qText = $('[data-qtext]', el); const status = $('[data-status]', el);
+    const field = $('[data-field]', el); const tickT = $('[data-tickt]', el);
+    const timers = []; const raw = [];
     const later = (fn, ms) => timers.push(setTimeout(fn, ms));
-    const isOpen = () => !el.hidden;
+    const clearT = () => timers.splice(0).forEach(clearTimeout);
+    const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let mode = 'closed';                   // closed | take | think | page
 
-    function ask() {                       // red takeover with the input
-      timers.splice(0).forEach(clearTimeout);
-      el.hidden = false; el.className = 'gen take'; input.value = '';
+    /* ticker: ideas for what to ask, sliding through the text field */
+    let ti = 0;
+    const tickReset = () => { ti = 0; tickT.textContent = IDEAS[0]; tickT.className = ''; };
+    tickReset();
+    raw.push(setInterval(() => {
+      if (mode !== 'take' || input.value) return;
+      tickT.className = 'out';
+      setTimeout(() => { ti = (ti + 1) % IDEAS.length; tickT.textContent = IDEAS[ti]; tickT.className = 'in'; }, 320);
+    }, 3300));
+    input.addEventListener('input', () => field.classList.toggle('empty', !input.value));
+
+    /* visual states */
+    const resetInput = () => { input.value = ''; input.readOnly = false; field.classList.add('empty'); status.textContent = ''; tickReset(); };
+    function visualOpen() {                // the red panel slides in from the right
+      clearT(); el.hidden = false; el.className = 'gen take'; resetInput(); mode = 'take';
       document.documentElement.classList.add('gen-open');
-      void el.offsetWidth; el.classList.add('in');
-      later(() => input.focus(), 420);
+      void el.offsetWidth; el.classList.add('in'); later(() => input.focus(), 460);
     }
-    function open() { ask(); }
-    function close() {
-      if (!isOpen()) return;
-      timers.splice(0).forEach(clearTimeout);
-      el.classList.remove('in');
-      document.documentElement.classList.remove('gen-open');
-      later(() => { el.hidden = true; el.className = 'gen'; }, 380);
+    function toTake() {
+      clearT(); el.classList.remove('page', 'think', 'reveal'); el.classList.add('take'); resetInput(); mode = 'take';
+      later(() => input.focus(), 500);
     }
-    function generate(q) {                 // takeover collapses into the rail and the page builds beside it
-      q = q.trim(); if (!q) return;
-      qText.textContent = q;
-      main.innerHTML = genPageHTML(); main.scrollTop = 0;
-      el.classList.remove('take'); el.classList.add('page');
-      later(() => el.classList.add('reveal'), 650);
+    function visualClose() {               // and slides back out to the right
+      if (mode === 'closed') return;
+      clearT(); mode = 'closed'; el.classList.remove('in'); document.documentElement.classList.remove('gen-open');
+      later(() => { el.hidden = true; el.className = 'gen'; }, 700);
+    }
+    // The article is generated as you scroll: each block is written the moment it comes into view.
+    let io = null;
+    function watchBlocks() {
+      if (io) io.disconnect();
+      io = new IntersectionObserver((es) => {
+        let k = 0;
+        es.filter((e) => e.isIntersecting).sort((x, y) => x.boundingClientRect.top - y.boundingClientRect.top).forEach((e) => {
+          e.target.style.setProperty('--o', k++); e.target.classList.add('on'); io.unobserve(e.target);
+        });
+      }, { root: main, rootMargin: '0px 0px -8% 0px', threshold: 0.04 });
+      $$('.gb', main).forEach((b) => io.observe(b));
+    }
+    function loadArticle(q) {
+      if (io) io.disconnect();
+      qText.textContent = q; input.value = q; input.readOnly = true; field.classList.remove('empty');
+      main.innerHTML = genPageHTML(); streamify(main); main.scrollTop = 0;
+    }
+    function showPage(q) {                 // arriving straight on the article (history forward / reload)
+      clearT(); loadArticle(q); el.hidden = false; document.documentElement.classList.add('gen-open');
+      el.className = 'gen page'; void el.offsetWidth; el.classList.add('in'); mode = 'page';
+      later(() => { el.classList.add('reveal'); watchBlocks(); }, 650);
+    }
+    // Demo: every question gets the same designed article ("Common Tread"), after a short generation animation.
+    function runGenerate(q) {
+      clearT(); loadArticle(q); input.blur();
+      el.classList.remove('take', 'page', 'reveal'); el.classList.add('think'); mode = 'think';
+      const step = reduceMotion ? 700 : 1050;
+      THINK.forEach((s, k) => later(() => { status.classList.remove('swap'); void status.offsetWidth; status.textContent = s; status.classList.add('swap'); }, k * step));
+      later(() => {                        // the red screen collapses into the rail, the page builds beside it
+        el.classList.remove('think'); el.classList.add('page'); mode = 'page';
+        later(() => { el.classList.add('reveal'); watchBlocks(); }, 650);
+      }, THINK.length * step + 150);
+    }
+    // The assistant's state follows the URL (?ai=take|page&q=...), so back and forward always work.
+    function sync(ai, q) {
+      if (!ai) return visualClose();
+      if (ai === 'take') { if (mode === 'closed') visualOpen(); else if (mode !== 'take') toTake(); return; }
+      if (ai === 'page' && q) {
+        if (mode === 'take') runGenerate(q);
+        else if (mode === 'closed') showPage(q);
+        else if (mode === 'page' && qText.textContent !== q) showPage(q);
+      }
+    }
+    const setHash = (ch) => { const h = hashWith(ch); if (h !== location.hash) location.hash = h; };
+    const ask = () => setHash({ ai: 'take', q: null });
+    const generate = (q) => { q = (q || '').trim(); if (q && mode === 'take') setHash({ ai: 'page', q }); };
+    function back() {                      // close, Esc: one step back in history
+      history.back();
+      setTimeout(() => { if (route().ai && mode !== 'closed') setHash({ ai: null, q: null }); }, 400);
+    }
+    // A suggested question: open the assistant, type it for the judge, then generate.
+    function openWith(q) {
+      if (mode === 'closed') ask();
+      const iv = setInterval(() => {
+        if (mode !== 'take') return; clearInterval(iv);
+        let n = 0;
+        const typeNext = () => { n += 1; input.value = q.slice(0, n); field.classList.remove('empty'); if (n < q.length) later(typeNext, 22); else later(() => generate(q), 450); };
+        later(typeNext, 560);
+      }, 40);
+      raw.push(iv); setTimeout(() => clearInterval(iv), 4000);
     }
     el.addEventListener('submit', (e) => { e.preventDefault(); generate(input.value); });
     el.addEventListener('click', (e) => {
       const t = e.target.closest('button'); if (!t) return;
-      if (t.matches('[data-gen-close]')) return close();
-      if (t.matches('[data-gen-toggle]')) return el.classList.contains('take') ? undefined : ask();
-      if (t.dataset.chip) { input.value = t.dataset.chip; return generate(t.dataset.chip); }
+      if (t.matches('[data-gen-close]')) return back();
+      if (t.matches('[data-gen-toggle]')) return mode === 'page' ? ask() : undefined;
+      if (t.matches('[data-tick]')) { input.value = IDEAS[ti]; return generate(IDEAS[ti]); }
       if (t.matches('[data-kb]')) return input.focus();
       if (t.matches('[data-mic]')) {
         const stub = { classList: t.classList, textContent: '' };
-        return void startVoice(stub, (txt) => { input.value = txt; }, (txt) => txt && generate(txt));
-      }
-      if (t.dataset.genAct) {              // visual only in this prototype
-        const lab = $('span', t); const old = t.dataset.genAct; if (t.classList.contains('busy')) return;
-        t.classList.add('busy'); lab.textContent = 'Preparing…';
-        later(() => { lab.textContent = old; t.classList.remove('busy'); }, 2200);
+        return void startVoice(stub, (txt) => { input.value = txt; field.classList.remove('empty'); }, (txt) => txt && generate(txt));
       }
     });
-    const onKey = (e) => { if (e.key === 'Escape' && isOpen()) close(); };
+    const onKey = (e) => { if (e.key === 'Escape' && mode !== 'closed') back(); };
     document.addEventListener('keydown', onKey);
-    window.__gen = { open, close };
+    window.__gen = { open: ask, openWith, sync };
     cleanup.push(() => {
-      timers.forEach(clearTimeout); document.removeEventListener('keydown', onKey);
+      clearT(); raw.forEach((x) => { clearInterval(x); clearTimeout(x); }); document.removeEventListener('keydown', onKey);
       document.documentElement.classList.remove('gen-open'); el.remove(); window.__gen = null;
     });
+    const r0 = route(); if (r0.ai) sync(r0.ai, r0.q);
   }
 
   /* ---------- Voice (Web Speech API where available) ---------- */
@@ -465,7 +616,8 @@
     const deck = $('#deck'); if (!deck) return;
     const stages = $$('.stg', deck); const dots = $$('.dots button', deck);
     const view = $('#deckView');
-    const graph = buildGraph();
+    const graph = buildGraph() || { set() {} };
+    const isGold = !!$('.stg-gwelcome', deck);
     const reelEl = $('.stg-video .reel', deck); const videoHead = $('.stg-video .work-head', deck);
     const navEl = $('.site-nav');
     let idx = 0; let busy = false; let stacked = false; let alive = true;
@@ -516,7 +668,7 @@
       if (idx === 2 && app._reel) app._reel.pause();
       // Steps 2 and 3 complete in 2s: 0.3s fade away + 0.2s settle + 1.5s animation, eased in and out.
       off(to); await sleep(300);                             // current container fades away
-      if (to === 1) {
+      if (to === 1 && $('#graph')) {
         graph.set(0); mark(1); await sleep(200);             // transition to black background
         // Outlines, overlaps and copy play as one continuous animation (no pauses): the scroll mapping's
         // rest bands are skipped so the timeline moves at an even pace from start to end.
@@ -547,8 +699,10 @@
         else if (to > idx) await forward(to); else await backward(to);
       } finally { busy = false; }
       snapTo(idx);   // the scroll position follows the step (the stage itself is pinned, so nothing visibly jumps)
+      if (isGold && !stacked) { const h = hashWith({ s: stages[idx].dataset.stg === 'work' ? 'work' : null }); if (h !== location.hash) location.hash = h; }
     }
-    window.__deck = { goto: async (i) => { if (stacked) return window.scrollTo(0, 0); await go(i, true); snapTo(i); } };
+    window.__deck = { goto: async (i) => { if (stacked) return window.scrollTo(0, 0); await go(i, true); snapTo(i); },
+      sync: (s) => { if (!isGold || stacked || busy) return; const t = s === 'work' ? 1 : 0; if (t !== idx) go(t); } };
 
     /* ----- scroll triggers the steps: scrolling past a stage's threshold plays the next sequence ----- */
     // Steps pause while the judge is in a conversation (Gold's ask panel open).
@@ -585,7 +739,7 @@
     stacked = true; measure();            // first pass decides the mode
     if (!stacked) { graph.set(0); mark(0); setVideo(0, 0); }
     // Coming back from a case page lands on the list of case studies.
-    if (sessionStorage.getItem('aoty-to-work')) {
+    if (sessionStorage.getItem('aoty-to-work') || route().s === 'work') {
       sessionStorage.removeItem('aoty-to-work');
       const li = stages.findIndex((s) => s.dataset.stg === 'work' || s.dataset.stg === 'cases');
       if (li > 0) {
@@ -606,30 +760,61 @@
   function mountCube() {
     const scene = $('#cubeScene'); if (!scene) return;
     const cube = scene.querySelector('.cube');
-    let rx = -24, ry = 32, vx = 0, vy = 0.25, down = false, lx = 0, ly = 0, raf = 0;
+    let rx = -24, ry = 32, vx = 0, vy = 0.08, down = false, lx = 0, ly = 0, raf = 0;
     const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
     // One fixed light (upper left, towards the viewer). Each face is shaded by the angle between its
     // rotated normal and that light, so the shading changes naturally as the cube turns.
-    const L = (() => { const v = [-0.5, -0.75, 0.55], m = Math.hypot(...v); return v.map((n) => n / m); })();
-    const faces = [['.f-front', [0, 0, 1]], ['.f-back', [0, 0, -1]], ['.f-right', [1, 0, 0]], ['.f-left', [-1, 0, 0]], ['.f-top', [0, -1, 0]], ['.f-bottom', [0, 1, 0]]]
-      .map(([sel, n]) => ({ el: cube.querySelector(sel), n }));
-    const DARK = [138, 0, 0], LIGHT = [255, 72, 72];
+    const L = (() => { const v = [-0.8, -0.5, 1.4], m = Math.hypot(...v); return v.map((n) => n / m); })();
+    // Each face: outward normal n, and its own x / y axes (ex, ey) as laid out by the CSS transforms.
+    const faces = [
+      ['.f-front',  [0, 0, 1],  [1, 0, 0],  [0, 1, 0]],
+      ['.f-back',   [0, 0, -1], [-1, 0, 0], [0, 1, 0]],
+      ['.f-right',  [1, 0, 0],  [0, 0, -1], [0, 1, 0]],
+      ['.f-left',   [-1, 0, 0], [0, 0, 1],  [0, 1, 0]],
+      ['.f-top',    [0, -1, 0], [1, 0, 0],  [0, 0, 1]],
+      ['.f-bottom', [0, 1, 0],  [1, 0, 0],  [0, 0, -1]],
+    ].map(([sel, n, ex, ey]) => ({ el: cube.querySelector(sel), n, ex, ey }));
+    // Acrylic with ONE light source. Light sits at a fixed point (upper left, towards the viewer) in the
+    // same space as the cube. For every face we mirror that point in the face's plane and look where the
+    // line from the camera to the mirror image crosses the plane: that is where the reflection really lands,
+    // so the highlight slides across the faces consistently as the cube turns.
+    const DARK = [150, 0, 0], LIGHT = [255, 78, 78], CAM = 1100;
+    const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
     const shade = () => {
+      const s = cube.offsetWidth || 240;
       const a = rx * Math.PI / 180, b = ry * Math.PI / 180;
       const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
-      faces.forEach(({ el, n }) => {
-        const x1 = n[0] * cb + n[2] * sb, y1 = n[1], z1 = -n[0] * sb + n[2] * cb;   // rotateY
-        const y2 = y1 * ca - z1 * sa, z2 = y1 * sa + z1 * ca, x2 = x1;              // then rotateX
-        const t = Math.min(1, Math.max(0, 0.2 + 0.9 * Math.max(0, x2 * L[0] + y2 * L[1] + z2 * L[2])));
-        el.style.background = `rgb(${DARK.map((d, i) => Math.round(d + (LIGHT[i] - d) * t)).join(',')})`;
+      const rot = (v) => { const x1 = v[0] * cb + v[2] * sb, z1 = -v[0] * sb + v[2] * cb; return [x1, v[1] * ca - z1 * sa, v[1] * sa + z1 * ca]; };
+      const P = [-0.8 * s, -0.5 * s, 1.4 * s], C = [0, 0, CAM];   // the one light, same direction as L
+      faces.forEach(({ el, n, ex, ey }) => {
+        const nw = rot(n), exw = rot(ex), eyw = rot(ey);
+        const c = nw.map((v) => v * s / 2);
+        const d = Math.max(0, dot(nw, L));
+        const t = Math.min(1, 0.2 + 0.9 * d);
+        const front = dot(nw, [C[0] - c[0], C[1] - c[1], C[2] - c[2]]) > 0;   // seen from outside vs through the acrylic
+        let spec = '';
+        const sideL = dot(nw, [P[0] - c[0], P[1] - c[1], P[2] - c[2]]);
+        if (front && sideL > 0) {
+          const k = 2 * sideL, M = [P[0] - k * nw[0], P[1] - k * nw[1], P[2] - k * nw[2]];  // light mirrored in the plane
+          const den = dot(nw, [M[0] - C[0], M[1] - C[1], M[2] - C[2]]);
+          const tt = dot(nw, [c[0] - C[0], c[1] - C[1], c[2] - C[2]]) / den;
+          const X = [C[0] + tt * (M[0] - C[0]) - c[0], C[1] + tt * (M[1] - C[1]) - c[1], C[2] + tt * (M[2] - C[2]) - c[2]];
+          const u = 50 + 100 * dot(X, exw) / s, v = 50 + 100 * dot(X, eyw) / s;
+          // the light is a soft box, not a pin-point: glow strength falls off with how far the mirror point is from the face
+          const dx = Math.max(0, Math.abs(u - 50) - 50), dy = Math.max(0, Math.abs(v - 50) - 50), I = Math.exp(-((dx * dx + dy * dy) / (90 * 90)));
+          spec = `radial-gradient(circle at ${u.toFixed(1)}% ${v.toFixed(1)}%,rgba(255,255,255,${(0.7 * I).toFixed(3)}),rgba(255,255,255,${(0.24 * I).toFixed(3)}) 40%,rgba(255,255,255,0) 95%),`;
+        }
+        const col = DARK.map((cc, i) => Math.round(cc + (LIGHT[i] - cc) * t)).join(',');
+        el.style.background = `${spec}rgba(${col},${front ? 0.66 : 0.4})`;
       });
     };
     const paint = () => { cube.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`; shade(); };
     const tick = () => {
       if (!scene.isConnected) return;
       if (!down) {
+        // heavy: a long, slow coast back to a lazy idle spin
         ry += vy; rx += vx;
-        vx *= 0.95; vy += ((reduce ? 0 : 0.25) - vy) * 0.02;
+        vx *= 0.985; vy += ((reduce ? 0 : 0.08) - vy) * 0.008;
       }
       paint(); raf = requestAnimationFrame(tick);
     };
@@ -637,7 +822,10 @@
     scene.addEventListener('pointermove', (e) => {
       if (!down) return;
       const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
-      ry += dx * 0.5; rx -= dy * 0.5; vy = dx * 0.5; vx = -dy * 0.5;
+      // low gain + velocity that builds up gradually, so the cube feels like it has mass
+      const gx = dx * 0.2, gy = dy * 0.2;
+      ry += gx; rx -= gy;
+      vy = Math.max(-3, Math.min(3, vy * 0.8 + gx * 0.2)); vx = Math.max(-3, Math.min(3, vx * 0.8 - gy * 0.2));
     });
     const up = () => { down = false; scene.classList.remove('drag'); };
     scene.addEventListener('pointerup', up); scene.addEventListener('pointercancel', up);
@@ -658,12 +846,13 @@
       const reel = createReel(root); app._reel = reel; cleanup.push(() => reel.destroy());
     }
     if (r.v === 'silver') mountSilver(r);
-    if (r.v === 'gold') mountGen();
+    if (r.v === 'gold') { mountGen(); mountTiles(); mountRailChips(); }
   }
   function onClick(e) {
     const r = route();
     if (e.target.closest('[data-gen-open]') && window.__gen) return window.__gen.open();
     if (e.target.closest('[data-to-work]')) sessionStorage.setItem('aoty-to-work', '1');   // the welcome page then opens on the case list
+    const chipq = e.target.closest('[data-chip-gen]'); if (chipq && window.__gen) return window.__gen.openWith(chipq.dataset.chipGen);
     const card = e.target.closest('[data-case]'); if (card) return go(r.v, 'case', card.dataset.case);
     if (e.target.closest('[data-act="logout"]')) { session.signedIn = false; sessionStorage.removeItem('aoty-in'); go(r.v, 'login'); }
   }
@@ -707,7 +896,7 @@
   const swTitle = $('#switcher .sw-title');
   if (swTitle) { swTitle.addEventListener('click', openIntro); swTitle.setAttribute('role', 'button'); swTitle.setAttribute('tabindex', '0'); swTitle.title = 'About the three versions'; swTitle.addEventListener('keydown', (e) => { if (e.key === 'Enter') openIntro(); }); }
   // Switching version always starts at the homepage (the login first if not signed in).
-  function jumpTo(v) { const before = location.hash; go(v, session.signedIn ? 'welcome' : 'login'); if (location.hash === before) render(); }
+  function jumpTo(v) { const before = location.hash; render.key = null; go(v, session.signedIn ? 'welcome' : 'login'); if (location.hash === before) render(); }
   $$('#switcher [data-v]').forEach((b) => b.addEventListener('click', () => jumpTo(b.dataset.v)));
   document.addEventListener('keydown', (e) => {
     if (/input|textarea/i.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
