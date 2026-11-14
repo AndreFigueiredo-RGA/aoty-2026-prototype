@@ -71,7 +71,7 @@
     tints: [[392, 299, 96, 254], [862, 299, 239, 121]],
     labels: [{ x: 86, y: 149, a: 'BRANDS', b: 'Intelligent by design' }, { x: 892, y: 110, a: 'STORIES', b: 'Personalised at scale' }, { x: 422, y: 584, a: 'EXPERIENCES', b: 'Adaptive by nature' }]
   };
-  const nav = (r) => `<nav class="site-nav"><a class="logo" href="#/${r.v}/welcome${r.v === 'gold' && r.p !== 'welcome' ? '?s=work' : ''}" aria-label="R/GA home"><img src="assets/rga-logo.svg" alt="R/GA" height="18"></a>
+  const nav = (r) => `<nav class="site-nav"><a class="logo" href="#/${r.v}/welcome" aria-label="R/GA home"><img src="assets/rga-logo.svg" alt="R/GA" height="18"></a>
     <div class="nav-r"><span>Agency of the Year 2026</span><button data-act="logout">Log out</button></div></nav>`;
   const SIGNATURE = '<img class="signature" src="assets/rga-signature.png" alt="R/GA 1977–TMRW. We design intelligent brand systems that help businesses get ahead." width="1360" height="341">';
   const footer = () => `<footer class="foot rv">${SIGNATURE}</footer>`;
@@ -186,7 +186,8 @@
     <div class="grail-chips">${chips.map((c) => `<button class="gchip" data-chip-gen="${esc(c.q)}" data-at="${c.at}">${esc(c.q)}</button>`).join('')}</div></aside>`;
   function mountRailChips() {
     const chips = $$('.gchip[data-at]'); if (!chips.length) return;
-    const upd = () => chips.forEach((c) => { const el = document.getElementById(c.dataset.at); c.classList.toggle('on', !el || el.getBoundingClientRect().top < window.innerHeight * 0.72); });
+    // Once a suggestion has loaded it stays, even when scrolling back up.
+    const upd = () => chips.forEach((c) => { const el = document.getElementById(c.dataset.at); if (!el || el.getBoundingClientRect().top < window.innerHeight * 0.72) c.classList.add('on'); });
     window.addEventListener('scroll', upd, { passive: true }); window.addEventListener('resize', upd); upd();
     cleanup.push(() => { window.removeEventListener('scroll', upd); window.removeEventListener('resize', upd); });
   }
@@ -852,6 +853,7 @@
     const r = route();
     if (e.target.closest('[data-gen-open]') && window.__gen) return window.__gen.open();
     if (e.target.closest('[data-to-work]')) sessionStorage.setItem('aoty-to-work', '1');   // the welcome page then opens on the case list
+    if (e.target.closest('.site-nav .logo')) window.scrollTo(0, 0);   // the logo always brings you back to the top of the welcome page
     const chipq = e.target.closest('[data-chip-gen]'); if (chipq && window.__gen) return window.__gen.openWith(chipq.dataset.chipGen);
     const card = e.target.closest('[data-case]'); if (card) return go(r.v, 'case', card.dataset.case);
     if (e.target.closest('[data-act="logout"]')) { session.signedIn = false; sessionStorage.removeItem('aoty-in'); go(r.v, 'login'); }
