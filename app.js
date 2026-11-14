@@ -182,7 +182,9 @@
     'nike-acg': [{ q: 'How does the Wild Score work?', at: 'a-solution' }, { q: 'Did it get people outside?', at: 'a-v6' }, { q: 'How did you reach 1.3M visitors?', at: 'a-results' }],
     g42: [{ q: 'What’s generated live vs pre-written?', at: 'a-solution' }, { q: 'What happens when the AI gets it wrong?', at: 'a-v5' }, { q: 'What’s changed for G42 since launch?', at: 'a-results' }]
   };
-  const railHTML = (chips) => `<aside class="grail"><button class="grail-ask aid" data-gen-open>${AID}</button>
+  // Case studies and pre-written articles: the top-left copy is the single invitation line.
+  const CASE_AID = '<span class="sp">✦</span><b>I can help you deep dive or see the content in another way. Just say the word.</b>';
+  const railHTML = (chips) => `<aside class="grail"><button class="grail-ask aid" data-gen-open>${CASE_AID}</button>
     <div class="grail-chips">${chips.map((c) => `<button class="gchip" data-chip-gen="${esc(c.q)}" data-at="${c.at}">${esc(c.q)}</button>`).join('')}</div></aside>`;
   function mountRailChips() {
     const chips = $$('.gchip[data-at]'); if (!chips.length) return;
@@ -337,8 +339,8 @@
     el.innerHTML = `<div class="gen-bg"></div>
       <main class="gen-main" data-main tabindex="-1"></main>
       <div class="gen-id aid"><button class="gen-star" data-gen-toggle aria-label="Ask something new">✦</button>
-        <div class="gen-intro"><b>An entry that adapts to you.</b><small>I can help you deep dive or see the work in another way. Just say the word.</small></div>
-        <p class="gen-q" data-qtext></p><p class="gen-reply">Here is a quick download. Let me know if you need more information.</p></div>
+        <div class="gen-intro">${route().p === 'case' ? '<b>I can help you deep dive or see the content in another way. Just say the word.</b>' : '<b>An entry that adapts to you.</b><small>I can help you deep dive or see the work in another way. Just say the word.</small>'}</div>
+        <p class="gen-q" data-qtext></p><p class="gen-reply">Here is what you requested. Let me know if you need more information.</p></div>
       <button class="gen-x" data-gen-close aria-label="Close the assistant">${CLOSE_X}</button>
       <form class="gen-ask" data-form autocomplete="off">
         <div class="gen-row"><div class="gen-field empty" data-field><input data-q aria-label="Ask the assistant"><button type="button" class="gen-tick" data-tick tabindex="-1" aria-label="Use this suggestion"><span data-tickt></span></button></div>

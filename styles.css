@@ -463,7 +463,8 @@ html.gen-open{overflow:hidden}
 @keyframes genspin{to{transform:rotate(360deg)}}
 .gen-q,.gen-reply{display:none}
 .gen.page .gen-q,.gen.page .gen-reply{display:block;animation:genfade .6s .5s var(--ease) both}
-.gen-q{margin-top:30px;font:700 12px/1.05 var(--cap);letter-spacing:-.02em;text-transform:uppercase;color:#f00}
+.gen.page .gen-intro{display:none}   /* the article state replaces the invitation copy with the question and the reply */
+.gen-q{margin-top:18px;font:700 12px/1.05 var(--cap);letter-spacing:-.02em;text-transform:uppercase;color:#f00}
 .gen-reply{margin-top:22px;font:700 clamp(17px,1.55vw,22px)/.98 var(--cap);letter-spacing:-.035em;text-transform:uppercase;color:#000}
 @keyframes genfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .gen-x{position:absolute;right:var(--pad);top:48px;width:48px;height:48px;display:grid;place-items:center;color:#fff;z-index:4;opacity:0;transition:opacity .3s .35s,transform .3s var(--ease)}
